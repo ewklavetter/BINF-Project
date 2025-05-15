@@ -1,1 +1,164 @@
+---
+title: "Monarch occurrence .gif tutorial"
+author: "Micah Freedman"
+date: "7/30/2019"
+output: html_document
+---
+
+##This is a quick tutorial on how to make an animated map of monarch butterfly occurrence data over the course of a year in North America. It uses data from iNaturalist (https://www.inaturalist.org/home) and is based on another tutorial from DataNovia (https://www.datanovia.com/en/blog/gganimate-how-to-create-plots-with-beautiful-animation-in-r/). 
+
+###Begin by downloading observations from iNaturalist. Use this link: https://www.inaturalist.org/observations/export. For this demonstration, I specified only observations from North America and entered "Danaus plexippus" in the "Taxon" search field. Besides that, I left all of the default options. This dataset contains about 50,000 observations and took about 10 minutes to compile and download. Once it's ready, you will be directed to a link that has a zipped folder which contains a .csv file that has all of the data. The .csv file should have a name like "observations-59866.csv".
+
+###Establish directory (put the downloaded .csv file here; all outputs will also go here)
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '../monarch_map_gif/')
+```
+
+###Load necessary libraries; if you don't have these installed yet, you'll have to do that first using install.packages('name_of_package')
+
+```{r}
+
+library(ggplot2); library(plyr); library(dplyr); library(rnaturalearth); library(gganimate); library(gapminder); library(gifski)
+
+```
+
+###Load the data and take a look. This could take a little while, depending on the size of the file.
+
+```{r}
+
+inat.flicker <- read.csv(file = 'Northern-Flicker-Data/1940-1961Flicker-data/0000345-250424135625364/0000345-250424135625364.csv', sep = "\t")
+#inat.flicker <- read.csv(file = 'Northern-Flicker-Data/1970-1991Flicker-data/0000365-250424135625364/0000365-250424135625364.csv', sep = "\t")
+
+
+head(inat.flicker)
+
+names(inat.flicker)
+
+```
+
+###Filter out captive reared and non-research-grade observations.
+
+```{r}
+
+#inat.flicker <- inat.flicker[inat.flicker$captive_cultivated=='false',]
+
+#inat.flicker <- inat.flicker[inat.flicker$quality_grade == 'research',]
+
+```
+
+###Pick which columns to keep
+
+```{r}
+
+columns.keep <- c('occurrenceID','gbifID','eventDate','decimalLatitude','decimalLongitude',
+                  'month')
+
+inat.flicker <- inat.flicker[,columns.keep]
+
+```
+
+###Get date information into the proper format
+
+```{r}
+
+inat.flicker$julian.date <- format(as.Date(inat.flicker$eventDate), "%j") #create a new column for Julian date of observation
+
+inat.flicker$julian.date <- as.numeric(inat.flicker$eventDate) #convert this to a continuous numeric variable
+
+inat.flicker$month <- format(as.Date(inat.flicker$eventDate), "%m")
+
+inat.flicker$month <- month.name[as.numeric(inat.flicker$month)] #convert 
+
+inat.flicker$month <- factor(inat.flicker$month, levels = c('January','February','March','April','May','June','July','August','September','October','November','December')) #rearrange so months are in chronological order
+
+```
+
+###Specify observations to exclude. These are some observations that, despite being research grade, are not relevant, such as dead flicker found in melted snow. I've almost certainly missed a few; this list can be updated.
+
+```{r}
+#urls.exclude <- c('https://www.inaturalist.org/observations/9373451','https://www.inaturalist.org/observations/20483568','https://www.inaturalist.org/observations/9879408','https://www.inaturalist.org/observations/20320860','https://www.inaturalist.org/observations/21799902','https://www.inaturalist.org/observations/19494799','https://www.inaturalist.org/observations/11410855','https://www.inaturalist.org/observations/5740325','https://www.inaturalist.org/observations/7469853','https://www.inaturalist.org/observations/18866685','https://www.inaturalist.org/observations/18357363','https://www.inaturalist.org/observations/19379295')
+
+#inat.flicker <- inat.flicker[-(inat.flicker$url %in% urls.exclude),] #exclude the above observations
+```
+
+###Plot observations onto a world map. Note: observations here are only from North America, since that is what I specified when I downloaded the data from iNaturalist.
+
+```{r}
+
+world <- ne_countries(scale= 'medium',returnclass = 'sf') #retrieve map layer (uses rnaturalearth package)
+
+ggplot(data = world)+
+  geom_sf()+
+  theme_bw()+
+  geom_point(data = inat.flicker,  aes(x = decimalLongitude, y = decimalLatitude), size = 0.5, col = 'blue')+
+  theme(legend.position = 'none')+
+  theme(axis.title = element_blank())
+
+```
+
+###Okay, now it's time to make the actual .gif itself.
+
+###First, we need to define a static plot that contains all of the data.
+
+```{r}
+(plot.static <- ggplot(data = world)+
+  geom_sf()+
+  theme_bw()+
+  theme(axis.title = element_blank(), axis.text = element_blank())+
+  xlim(c(-130,-60))+
+  ylim(c(12,60))+
+  theme(legend.position = 'none')+
+  geom_point(data = inat.flicker, 
+             aes(x = decimalLongitude, y = decimallLatitude, col = julian.date), size = 1)+
+  scale_color_viridis_c())
+```
+
+###Now use this map template to generate an animated .gif
+####Arguments and what they do:
+####transition_time() specifies what to use for indexing / what order to put plots in
+####shadow_wake() will leave a "trail" or "imprint" behind after each point appears, with the time that it remains visible defined by the wake_length argument
+####shadow_mark() will leave a permanent mark after a point appear.
+
+```{r}
+flicker.anim <- plot.static + transition_time(julian.date) +
+  shadow_wake(wake_length = 0.5, alpha = FALSE)+
+  shadow_mark(alpha = 0.4, size = 0.6)
+```
+
+###Display the .gif!!!
+
+```{r}
+flicker.anim
+```
+
+###Export the file in .gif format
+
+```{r}
+anim_save("../flicker.gif", flicker.anim, height = 8, width = 8, units = "in", res = 300)
+```
+
+###Make another plot, but this time plotting data according to their month of occurrence rather than Julian day
+
+```{r}
+
+(plot.static.month <- ggplot(data = world)+
+    geom_sf()+
+    theme_bw()+
+    theme(axis.title = element_blank(), axis.text = element_blank())+
+    xlim(c(-130,-60))+
+    ylim(c(12,60))+
+    geom_point(data = inat.flicker, 
+               aes(x = longitude, y = latitude, col = month), size = 1)+
+    scale_color_viridis_d()) #same code as before, but with col = month and scale_color_viridis changed to discrete rather than continuous
+
+flicker.anim.month <- plot.static.month + transition_time(as.integer(month)) +
+  shadow_wake(wake_length = 0.5, alpha = FALSE)+
+  shadow_mark(alpha = 0.4, size = 0.6)+
+  labs(title = 'Month: {frame_time}') #this line will add a title that shows Month: 1, Month: 2, etc.
+  
+flicker.anim.month
+
+```
+
 
